@@ -8,7 +8,11 @@
 
 #import "ViewController.h"
 
+#import <libkern/OSAtomic.h>
+
 @interface ViewController ()
+
+@property(nonatomic,strong)NSThread *thread;
 
 @end
 
@@ -167,32 +171,35 @@
         {
             //6.GCD 的timer
             
-            //回调block
-            void (^setBlock) (void) = ^ {
+            __block int32_t timeOutCount = 10;
+            
+            dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+            
+            dispatch_source_set_timer(timer, DISPATCH_TIME_NOW, 1ull * NSEC_PER_SEC, 0);
+            
+            //操作回调
+            dispatch_source_set_event_handler(timer, ^{
                 
-                //在这里执行事件
-                [self executeAction];
-            };
+                NSLog(@"dispatch_source_set_event_handler");
+                
+                //演示一个简单的10秒倒计时的功能：
+                OSAtomicDecrement32(&timeOutCount);
+                
+                if (timeOutCount == 0) {
+                    NSLog(@"timersource cancel");
+                    dispatch_source_cancel(timer);
+                }
+                
+            });
             
-            NSTimeInterval period = 1.0; //设置时间间隔
+            //结束回调
+            dispatch_source_set_cancel_handler(timer, ^{
+                
+                NSLog(@"timersource cancel handle block");
+                
+            });
             
-            //标示
-            const char* identifier = "com.kevingao.serialQueue";
-
-            //主线程
-            dispatch_queue_t temp_queue = dispatch_queue_create(identifier, NULL);
-            
-            //源
-            dispatch_source_t _timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, temp_queue);
-            
-            //每1.0秒执行
-            dispatch_source_set_timer(_timer, dispatch_walltime(NULL, 0), period * NSEC_PER_SEC, 0);
-            
-            //设置操作回调
-            dispatch_source_set_event_handler(_timer, setBlock);
-            
-            //恢复源
-            dispatch_resume(_timer);
+            dispatch_resume(timer);
         }
             break;
         case 6:
@@ -234,12 +241,56 @@
         {
             //9.常驻子线程，保持子线程一直处理事件
             
+            //创建一个常驻服务线程的很好方法
+            
+            
         }
             break;
         default:
             break;
     }
 
+}
+
+- (void)threadRunloopPoint:(id)object{
+    
+    NSLog(@"%@",NSStringFromSelector(_cmd));
+    
+    @autoreleasepool {
+    
+        [[NSThread currentThread] setName:@"kevinThread"];
+        
+        NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
+        
+        //添加port源，保证runloop正常轮询，不会创建后直接退出。
+        //// 这里主要是监听某个 port，目的是让这个 Thread 不会回收
+        [runLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
+        [runLoop run];
+    }
+}
+
+
+- (NSThread *)thread{
+    
+    if(!_thread){
+        _thread = [[NSThread alloc] initWithTarget:self selector:@selector(threadRunloopPoint:) object:nil];
+        [_thread start];
+    }
+    return _thread;
+}
+
+- (void)test{
+    
+    NSLog(@"%s",__func__);
+}
+
+- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event{
+    
+    [self performSelector:@selector(test)
+                 onThread:self.thread
+               withObject:nil
+            waitUntilDone:NO
+                    modes:@[NSDefaultRunLoopMode]];
 }
 
 - (void)executeAction{
